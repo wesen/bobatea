@@ -34,6 +34,8 @@ type KeyMap struct {
 
 	Help key.Binding `keymap-mode:"*"`
 	Quit key.Binding `keymap-mode:"*"`
+	
+	CommandPalette key.Binding `keymap-mode:"*"`
 }
 
 var DefaultKeyMap = KeyMap{
@@ -120,6 +122,11 @@ var DefaultKeyMap = KeyMap{
 	NextConversationThread: key.NewBinding(
 		key.WithKeys("right"),
 		key.WithHelp("right", "next conversation thread"),
+	),
+	
+	CommandPalette: key.NewBinding(
+		key.WithKeys("ctrl+k"),
+		key.WithHelp("ctrl+k", "command palette"),
 	),
 }
 

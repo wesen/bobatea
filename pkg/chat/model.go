@@ -13,7 +13,8 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	conversationui "github.com/go-go-golems/bobatea/pkg/chat/conversation"
+	"github.com/go-go-golems/bobatea/pkg/chat/conversation"
+	"github.com/go-go-golems/bobatea/pkg/commandpalette"
 	"github.com/go-go-golems/bobatea/pkg/filepicker"
 	mode_keymap "github.com/go-go-golems/bobatea/pkg/mode-keymap"
 	"github.com/go-go-golems/bobatea/pkg/textarea"
@@ -59,14 +60,16 @@ type model struct {
 
 	filepicker filepicker.Model
 
-	conversation conversationui.Model
+	conversation conversation.Model
 
 	help help.Model
+
+	commandPalette commandpalette.Model
 
 	err    error
 	keyMap KeyMap
 
-	style  *conversationui.Style
+	style  *conversation.Style
 	width  int
 	height int
 
@@ -100,6 +103,12 @@ func WithAutoStartBackend(autoStartBackend bool) ModelOption {
 	}
 }
 
+func WithCommandPalette(config commandpalette.CommandPaletteConfig) ModelOption {
+	return func(m *model) {
+		m.commandPalette = commandpalette.New(config)
+	}
+}
+
 // TODO(manuel, 2024-04-07) Add options to configure filepicker
 
 func InitialModel(manager geppetto_conversation.Manager, backend Backend, options ...ModelOption) model {
@@ -113,9 +122,9 @@ func InitialModel(manager geppetto_conversation.Manager, backend Backend, option
 
 	ret := model{
 		conversationManager: manager,
-		conversation:        conversationui.NewModel(manager),
+		conversation:        conversation.NewModel(manager),
 		filepicker:          fp,
-		style:               conversationui.DefaultStyles(),
+		style:               conversation.DefaultStyles(),
 		keyMap:              DefaultKeyMap,
 		backend:             backend,
 		viewport:            viewport.New(0, 0),
@@ -170,6 +179,12 @@ func (m model) Init() tea.Cmd {
 func (m *model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
+	// Handle command palette if it's visible
+	if m.commandPalette.IsVisible() {
+		m.commandPalette, cmd = m.commandPalette.Update(msg)
+		return m, cmd
+	}
+
 	switch {
 	case key.Matches(msg, m.keyMap.Help):
 		cmd = func() tea.Msg { return ToggleHelpMsg{} }
@@ -177,6 +192,9 @@ func (m *model) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		cmd = func() tea.Msg { return UnfocusMessageMsg{} }
 	case key.Matches(msg, m.keyMap.Quit):
 		cmd = func() tea.Msg { return QuitMsg{} }
+	case key.Matches(msg, m.keyMap.CommandPalette):
+		m.commandPalette.Show()
+		return m, nil
 	case key.Matches(msg, m.keyMap.FocusMessage):
 		cmd = func() tea.Msg { return FocusMessageMsg{} }
 	case key.Matches(msg, m.keyMap.SelectNextMessage):
@@ -232,6 +250,8 @@ func (m model) saveToFile(path string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 	var cmd tea.Cmd
@@ -245,17 +265,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg_.Height
 
 		m.recomputeSize()
+		
+		// Update command palette size
+		m.commandPalette, cmd = m.commandPalette.Update(msg)
+		cmds = append(cmds, cmd)
 
 	// We handle errors just like any other message
 	case ErrorMsg:
 		m.err = msg_
 		return m, nil
 
-	case conversationui.StreamCompletionMsg,
-		conversationui.StreamStartMsg,
-		conversationui.StreamStatusMsg,
-		conversationui.StreamDoneMsg,
-		conversationui.StreamCompletionError:
+	case conversation.StreamCompletionMsg,
+		conversation.StreamStartMsg,
+		conversation.StreamStatusMsg,
+		conversation.StreamDoneMsg,
+		conversation.StreamCompletionError:
 		// is CompletionMsg, we need to getNextCompletion
 		m.conversation, cmd = m.conversation.Update(msg)
 		if m.scrollToBottom {
@@ -426,6 +450,20 @@ func (m model) View() string {
 
 	case StateSavingToFile:
 		ret += m.filepicker.View()
+	}
+
+	// Show command palette overlay if visible
+	if m.commandPalette.IsVisible() {
+		paletteView := m.commandPalette.View()
+		
+		// Center the palette on the screen
+		return lipgloss.Place(
+			m.width,
+			m.height,
+			lipgloss.Center,
+			lipgloss.Center,
+			paletteView,
+		)
 	}
 
 	return ret
